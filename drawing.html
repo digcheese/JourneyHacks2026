@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Coordinate Drawing Tool</title>
+    <style>
+        html, body {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            font-family: Arial, sans-serif;
+        }
+        .container {
+            width: 100%;
+            height: 100%;
+            position: relative;
+        }
+        .controls {
+            position: absolute;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 10;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            align-items: center;
+        }
+        .test-input {
+            display: flex;
+            gap: 8px;
+            background: rgba(255, 255, 255, 0.95);
+            padding: 10px;
+            border-radius: 6px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+        }
+        #testCoord {
+            padding: 8px 12px;
+            font-size: 14px;
+            border: 2px solid #ddd;
+            border-radius: 4px;
+            width: 150px;
+        }
+        #testCoord:focus {
+            outline: none;
+            border-color: #4CAF50;
+        }
+        #testBtn {
+            padding: 8px 16px;
+            font-size: 14px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            background: #2196F3;
+            color: white;
+            font-weight: bold;
+        }
+        #testBtn:hover {
+            background: #1976D2;
+        }
+        #drawingBtn {
+            padding: 12px 24px;
+            font-size: 16px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            background: #4CAF50;
+            color: white;
+            font-weight: bold;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+        }
+        #drawingBtn:hover {
+            background: #45a049;
+        }
+        #drawingBtn.off {
+            background: #f44336;
+        }
+        #drawingBtn.off:hover {
+            background: #da190b;
+        }
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+            background: white;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="controls">
+            <button id="drawingBtn" onclick="toggleDrawing()">Start Drawing</button>
+            <div class="test-input">
+                <input type="text" id="testCoord" placeholder="x,y (e.g., 10,20)">
+                <button id="testBtn" onclick="testCoordinate()">Test Coord</button>
+            </div>
+        </div>
+        <canvas id="canvas"></canvas>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        const jsonUrl = 'http://10.167.2.164:8080';
+        
+        let isDrawing = false;
+        let originX = null;
+        let originY = null;
+        let firstCoordX = null;
+        let firstCoordY = null;
+        let lastX = null;
+        let lastY = null;
+        let pollInterval = null;
+
+        // Resize canvas to fill viewport
+        function resizeCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+
+        // Initialize canvas
+        resizeCanvas();
+        window.addEventListener('resize', resizeCanvas);
+        
+        ctx.strokeStyle = '#000000';
+        ctx.lineWidth = 2;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+
+        function toggleDrawing() {
+            isDrawing = !isDrawing;
+            const btn = document.getElementById('drawingBtn');
+            
+            if (isDrawing) {
+                btn.textContent = 'Stop Drawing';
+                btn.classList.remove('off');
+                // Reset origin when starting
+                originX = null;
+                originY = null;
+                firstCoordX = null;
+                firstCoordY = null;
+                lastX = null;
+                lastY = null;
+                // Start polling for coordinates
+                startPolling();
+            } else {
+                btn.textContent = 'Start Drawing';
+                btn.classList.add('off');
+                // Stop polling
+                stopPolling();
+            }
+        }
+
+        function startPolling() {
+            // Poll for new coordinates every 100ms
+            pollInterval = setInterval(fetchCoordinates, 100);
+            // Also fetch immediately
+            fetchCoordinates();
+        }
+
+        function stopPolling() {
+            if (pollInterval) {
+                clearInterval(pollInterval);
+                pollInterval = null;
+            }
+        }
+
+        async function fetchCoordinates() {
+            if (!isDrawing) return;
+
+            try {
+                const response = await fetch(jsonUrl);
+                const data = await response.json();
+                
+                // Assuming the JSON contains x and y coordinates
+                // Adjust these property names based on your actual JSON structure
+                let x, y;
+                
+                if (Array.isArray(data)) {
+                    // If it's an array, take the last coordinate
+                    const coord = data[data.length - 1];
+                    x = coord.x || coord.X || coord[0];
+                    y = coord.y || coord.Y || coord[1];
+                } else {
+                    // If it's an object
+                    x = data.x || data.X || data.coordX || data.coordinateX;
+                    y = data.y || data.Y || data.coordY || data.coordinateY;
+                }
+
+                if (x !== undefined && y !== undefined) {
+                    processCoordinate(x, y);
+                }
+            } catch (error) {
+                console.error('Error fetching coordinates:', error);
+            }
+        }
+
+        function processCoordinate(x, y) {
+            const centerX = canvas.width / 2;
+            const centerY = canvas.height / 2;
+
+            if (originX === null || originY === null) {
+                // First coordinate - store its values and set as origin at center
+                firstCoordX = x;
+                firstCoordY = y;
+                originX = centerX;
+                originY = centerY;
+                lastX = originX;
+                lastY = originY;
+                // Draw a point at the origin
+                ctx.beginPath();
+                ctx.arc(originX, originY, 3, 0, 2 * Math.PI);
+                ctx.fill();
+            } else {
+                // Subsequent coordinates are relative to the first coordinate
+                // Calculate relative offset from first coordinate
+                const relativeX = x - firstCoordX;
+                const relativeY = y - firstCoordY;
+                
+                // Draw at center + relative offset
+                const screenX = originX + relativeX;
+                const screenY = originY + relativeY;
+
+                // Draw line from last point to new point
+                ctx.beginPath();
+                ctx.moveTo(lastX, lastY);
+                ctx.lineTo(screenX, screenY);
+                ctx.stroke();
+
+                lastX = screenX;
+                lastY = screenY;
+            }
+        }
+
+        // Test coordinate input function
+        function testCoordinate() {
+            const input = document.getElementById('testCoord');
+            const value = input.value.trim();
+            
+            if (!value) {
+                alert('Please enter coordinates in format: x,y');
+                return;
+            }
+            
+            const parts = value.split(',');
+            if (parts.length !== 2) {
+                alert('Invalid format. Please use: x,y (e.g., 10,20)');
+                return;
+            }
+            
+            const x = parseFloat(parts[0].trim());
+            const y = parseFloat(parts[1].trim());
+            
+            if (isNaN(x) || isNaN(y)) {
+                alert('Please enter valid numbers');
+                return;
+            }
+            
+            // Process the coordinate as if it came from the JSON endpoint
+            processCoordinate(x, y);
+            
+            // Clear input for next entry
+            input.value = '';
+            input.focus();
+        }
+
+        // Allow Enter key to submit test coordinate
+        document.getElementById('testCoord').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                testCoordinate();
+            }
+        });
+
+        // Clear canvas function (optional - can be added if needed)
+        function clearCanvas() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+        }
+    </script>
+</body>
+</html>
