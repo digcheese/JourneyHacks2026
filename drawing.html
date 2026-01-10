@@ -198,8 +198,11 @@
         .results-info .rating-display {
             font-size: 48px;
             font-weight: bold;
-            color: #4CAF50;
             margin-bottom: 30px;
+            background: linear-gradient(to right, #f44336, #4CAF50);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
         }
         .play-again-btn {
             padding: 12px 30px;
@@ -474,6 +477,29 @@
             }
         }
 
+        // Function to calculate gradient color based on percentage
+        function getGradientColor(percentage) {
+            // Clamp percentage between 0 and 100
+            const pct = Math.max(0, Math.min(100, percentage));
+            
+            // Calculate RGB values: red (255,0,0) to green (0,255,0)
+            const red = Math.round(255 * (1 - pct / 100));
+            const green = Math.round(255 * (pct / 100));
+            const blue = 0;
+            
+            return `rgb(${red}, ${green}, ${blue})`;
+        }
+
+        // Function to extract percentage from rating text
+        function extractPercentage(ratingText) {
+            // Try to extract number from text (handles formats like "50%", "50", "50 percent", etc.)
+            const match = ratingText.match(/(\d+(?:\.\d+)?)/);
+            if (match) {
+                return parseFloat(match[1]);
+            }
+            return 50; // Default to 50% if can't parse
+        }
+
         // Function to show results panel
         function showResultsPanel(imageData, prompt, rating) {
             // Remove existing panel and backdrop if any
@@ -485,6 +511,10 @@
             if (existingBackdrop) {
                 existingBackdrop.remove();
             }
+            
+            // Extract percentage and calculate gradient color
+            const percentage = extractPercentage(rating);
+            const gradientColor = getGradientColor(percentage);
             
             // Create backdrop
             const backdrop = document.createElement('div');
@@ -504,7 +534,7 @@
                     <div class="results-info">
                         <h2>Your Results</h2>
                         <div class="prompt-display-result">Prompt: <strong>${prompt}</strong></div>
-                        <div class="rating-display">Rating: ${rating}</div>
+                        <div class="rating-display" style="color: ${gradientColor};">Rating: ${rating}</div>
                         <button class="play-again-btn" onclick="playAgain()">Play Again</button>
                     </div>
                 </div>
