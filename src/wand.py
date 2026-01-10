@@ -1,81 +1,97 @@
 #phyphox configuration
 PP_ADDRESS = "http://172.20.10.1:80"
-PP_CHANNELS = ["accX","accY","accZ", "acc_time"]
+PP_CHANNELS = ["lin_accX","lin_accY","lin_accZ", "lin_acc_time"]
 
 import requests
 
 import numpy as np
 from scipy.integrate import cumulative_trapezoid
 
-def accelerate_to_coords(accel_data, time_step, initial_velocity, initial_position):
-    """
-    Converts a 1D array of acceleration values into position coordinates.
-    
-    Parameters:
-    accel_data (list/np.array): Acceleration values (e.g., m/s^2)
-    time_step (float): Time between samples in seconds (1/frequency)
-    initial_velocity (float): Starting velocity
-    initial_position (float): Starting coordinate
-    
-    Returns:
-    tuple: (velocity_array, position_array)
-    """
-    accel = np.array(accel_data)
-    
-    # 1. Integrate acceleration to get velocity
-    # initial value ensures the output array is the same length as input
-    velocity = cumulative_trapezoid(accel, dx=time_step, initial=initial_velocity)
-    
-    # 2. Integrate velocity to get position (coordinates)
-    position = cumulative_trapezoid(velocity, dx=time_step, initial=initial_position)
-    
-    return velocity, position
+class RealTimePositionTracker:
+    def __init__(self, accel_threshold=0.01):
+        # State variables
+        self.velocity = np.array([0.0, 0.0, 0.0])
+        self.position = np.array([0.0, 0.0, 0.0])
+        self.last_accel = np.array([0.0, 0.0, 0.0])
+        self.last_time = None
+                
+        # Filtering
+        self.accel_threshold = accel_threshold # Meters/s^2
+        self.friction = 0.95
+        
+        self.stationary_counter = 0
+        self.stationary_threshold = 10
 
-def d_coords(accel_data, last_accel, last_vel):
-    d_point = [0,0,0]
-    vel = last_vel
-    
-    vel[0], d_point[0] = accelerate_to_coords(accel_data[0], accel_data[3]-last_accel[3], vel[0], d_point[0])
-    vel[1], d_point[1] = accelerate_to_coords(accel_data[1], accel_data[3]-last_accel[3], vel[1], d_point[1])
-    vel[2], d_point[2] = accelerate_to_coords(accel_data[2], accel_data[3]-last_accel[3], vel[2], d_point[2])
+    def update(self, accel_input, current_time):
+        """
+        accel_input: list or np.array [x, y, z] in m/s^2
+        current_time: timestamp in seconds
+        Returns: current position [x, y, z]
+        """
 
-    return d_point[0:2], vel
-    
-def next_point(points, vels, accels, prev_accels):
-    next_point = points[-1]
+        # 1. Initialize time on first run
+        if self.last_time is None:
+            self.last_time = current_time
+            return self.position
+        
+        # 2. Calculate time delta (dt)
+        dt = current_time - self.last_time
+        if dt <= 0: return self.position # Handle duplicate timestamps
 
-    change, next_vel = d_coords(accels, prev_accels, vels[-1])
-    for i in range(0,2):
-        next_point[i] += change[i]
-    
+        # 3. Thresholding Noise
+        
+        acc_magnitude = np.linalg.norm(accel_input)
+        if acc_magnitude < self.accel_threshold:
+            # If acceleration is tiny, treat it as 0
+            accel_input = np.array([0.0, 0.0, 0.0])
+            self.stationary_counter += 1
+        else:
+            self.stationary_counter = 0
 
-    vels.append(next_vel)
-    points.append(next_point)
-    return
+        # If we have been stationary for a while, force velocity to 0 (Stops drift!)
+        if self.stationary_counter > self.stationary_threshold:
+            self.velocity = np.array([0.0, 0.0, 0.0])   
+                
+                        
+        accel_linear = np.array(accel_input)
+
+
+        # 4. Trapezoidal Integration for Velocity
+        # v = v0 + 0.5 * (a0 + a1) * dt
+        new_velocity = self.velocity + 0.5 * (self.last_accel + accel_linear) * dt * self.friction
+
+        # 5. Trapezoidal Integration for Position
+        # p = p0 + 0.5 * (v0 + v1) * dt
+        new_position = self.position + 0.5 * (self.velocity + new_velocity) * dt
+
+        # 6. Update State
+        self.velocity = new_velocity
+        self.position = new_position
+        self.last_accel = accel_linear
+        self.last_time = current_time
+
+        return self.position
 
 
 
-accels = [0,0,0,0]
-prev_accels = [0,0,0,0]
 
-prev_vel = 0
-list_of_points = [[0,0]]
+tracker = RealTimePositionTracker(accel_threshold=0.2)
+
 
 while True:
     url = PP_ADDRESS + "/get?" + ("&".join(PP_CHANNELS))
     data = requests.get(url=url).json()
 
-    accX = data["buffer"]['accX']['buffer'][0]
-    accY = data["buffer"]['accY']['buffer'][0]
-    accZ = data["buffer"]['accZ']['buffer'][0]
-    acc_time = data["buffer"]['acc_time']['buffer'][0]
+    accX = data["buffer"]["" + PP_CHANNELS[0]]['buffer'][0]
+    accY = data["buffer"]["" + PP_CHANNELS[1]]['buffer'][0]
+    accZ = data["buffer"]["" + PP_CHANNELS[2]]['buffer'][0]
+    acc_time = data["buffer"]["" + PP_CHANNELS[3]]['buffer'][0]
+
+
+    accels = [accX, accY, accZ]
     
-    
-    accels = [accX, accY, accZ, acc_time]
-    
-    next_point(list_of_points, prev_vel, accels, prev_accels)
-    
-    prev_accels = accels
+    pos = tracker.update(accels, acc_time)
+    print(pos)
 
 
 
