@@ -229,7 +229,7 @@
             <input type="text" id="testCoord" placeholder="x,y (e.g., 10,20)">
             <button id="testBtn" onclick="testCoordinate()">Test Coord</button>
         </div>
-        <button id="drawingBtn" onclick="toggleDrawing()">Start Drawing</button>
+        <button id="drawingBtn">Start Drawing</button>
         <canvas id="canvas"></canvas>
     </div>
 
@@ -270,6 +270,11 @@
                 processCoordinate(x, y);
             }
         });
+
+        document.getElementById("drawingBtn").onclick = () => { 
+            toggleDrawing();
+            socket.emit("restart"); 
+        };
         
         // Handle socket connection events
         socket.on("connect", () => {
