@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JSON Data Display</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            padding: 20px;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        #data {
+            white-space: pre-wrap;
+            font-family: monospace;
+        }
+    </style>
+</head>
+<body>
+    <div id="data">Loading...</div>
+
+    <script>
+        // Replace this URL with your JSON web address
+        const jsonUrl = 'http://10.167.2.164:8080';
+
+        async function loadData() {
+            try {
+                const response = await fetch(jsonUrl);
+                const data = await response.json();
+                document.getElementById('data').textContent = JSON.stringify(data, null, 2);
+            } catch (error) {
+                document.getElementById('data').textContent = 'Error loading data: ' + error.message;
+            }
+        }
+
+        if (jsonUrl) {
+            loadData();
+        } else {
+            document.getElementById('data').textContent = 'Please set the jsonUrl variable with your JSON web address';
+        }
+    </script>
+</body>
+</html>
