@@ -5,7 +5,12 @@ PP_CHANNELS = ["lin_accX","lin_accY","lin_accZ", "lin_acc_time"]
 import requests
 
 import numpy as np
-from scipy.integrate import cumulative_trapezoid
+
+from flask import Flask, render_template 
+from flask_socketio import SocketIO, emit 
+import time 
+import threading
+
 
 class RealTimePositionTracker:
     def __init__(self, accel_threshold=0.01):
@@ -73,25 +78,35 @@ class RealTimePositionTracker:
         return self.position
 
 
+def coordinate_loop():
+    tracker = RealTimePositionTracker(accel_threshold=0.2)
+
+    while True:
+        url = PP_ADDRESS + "/get?" + ("&".join(PP_CHANNELS))
+        data = requests.get(url=url).json()
+
+        accX = data["buffer"]["" + PP_CHANNELS[0]]['buffer'][0]
+        accY = data["buffer"]["" + PP_CHANNELS[1]]['buffer'][0]
+        accZ = data["buffer"]["" + PP_CHANNELS[2]]['buffer'][0]
+        acc_time = data["buffer"]["" + PP_CHANNELS[3]]['buffer'][0]
 
 
-tracker = RealTimePositionTracker(accel_threshold=0.2)
+        accels = [accX, accY, accZ]
+        
+        pos = tracker.update(accels, acc_time)
+        print(pos)
+        socketio.emit("new_coord", {"x": pos[0], "y": pos[1]})
+        time.sleep(0.01)
 
+app = Flask(__name__) 
+socketio = SocketIO(app, cors_allowed_origins="*")
 
-while True:
-    url = PP_ADDRESS + "/get?" + ("&".join(PP_CHANNELS))
-    data = requests.get(url=url).json()
-
-    accX = data["buffer"]["" + PP_CHANNELS[0]]['buffer'][0]
-    accY = data["buffer"]["" + PP_CHANNELS[1]]['buffer'][0]
-    accZ = data["buffer"]["" + PP_CHANNELS[2]]['buffer'][0]
-    acc_time = data["buffer"]["" + PP_CHANNELS[3]]['buffer'][0]
-
-
-    accels = [accX, accY, accZ]
+@app.route("/") 
+def index(): 
+    return render_template("index.html") 
     
-    pos = tracker.update(accels, acc_time)
-    print(pos)
-
-
-
+if __name__ == "__main__": 
+    t = threading.Thread(target=coordinate_loop) 
+    t.daemon = True 
+    t.start() 
+    socketio.run(app, debug=True)
