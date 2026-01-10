@@ -1,6 +1,7 @@
 #phyphox configuration
-PP_ADDRESS = "http://172.20.10.1:80"
-PP_CHANNELS = ["lin_accX","lin_accY","lin_accZ", "lin_acc_time"]
+# PP_ADDRESS = "http://172.20.10.1:80"
+PP_ADDRESS = "http://10.167.2.164:8080"
+PP_CHANNELS = ["linX","linY","linZ", "lin_time"]
 
 import requests
 
@@ -22,10 +23,8 @@ class RealTimePositionTracker:
                 
         # Filtering
         self.accel_threshold = accel_threshold # Meters/s^2
+        self.vel_threshold = 0.01
         self.friction = 0.95
-        
-        self.stationary_counter = 0
-        self.stationary_threshold = 10
 
     def update(self, accel_input, current_time):
         """
@@ -44,21 +43,15 @@ class RealTimePositionTracker:
         if dt <= 0: return self.position # Handle duplicate timestamps
 
         # 3. Thresholding Noise
-        
         acc_magnitude = np.linalg.norm(accel_input)
         if acc_magnitude < self.accel_threshold:
             # If acceleration is tiny, treat it as 0
-            accel_input = np.array([0.0, 0.0, 0.0])
-            self.stationary_counter += 1
-        else:
-            self.stationary_counter = 0
-
-        # If we have been stationary for a while, force velocity to 0 (Stops drift!)
-        if self.stationary_counter > self.stationary_threshold:
-            self.velocity = np.array([0.0, 0.0, 0.0])   
-                
-                        
+            accel_input = np.array([0.0, 0.0, 0.0])                
         accel_linear = np.array(accel_input)
+        
+        for i in range(3):
+            if abs(self.velocity[i]) < self.vel_threshold:
+                self.velocity[i] = 0.0
 
 
         # 4. Trapezoidal Integration for Velocity
@@ -78,10 +71,21 @@ class RealTimePositionTracker:
         return self.position
 
 
+
+app = Flask(__name__) 
+socketio = SocketIO(app, cors_allowed_origins="*")
+restart_requested = False
+
 def coordinate_loop():
-    tracker = RealTimePositionTracker(accel_threshold=0.2)
+    global restart_requested
+    
+    tracker = RealTimePositionTracker(accel_threshold=0.1)
 
     while True:
+        if restart_requested:
+            tracker = RealTimePositionTracker(accel_threshold=0.1)
+            restart_requested = False
+            
         url = PP_ADDRESS + "/get?" + ("&".join(PP_CHANNELS))
         data = requests.get(url=url).json()
 
@@ -95,11 +99,16 @@ def coordinate_loop():
         
         pos = tracker.update(accels, acc_time)
         print(pos)
-        socketio.emit("new_coord", {"x": pos[0], "y": pos[1]})
+        socketio.emit("new_coord", {"x": pos[0] * 100, "y": pos[1] * -100})
         time.sleep(0.01)
+        
 
-app = Flask(__name__) 
-socketio = SocketIO(app, cors_allowed_origins="*")
+@socketio.on("restart") 
+def restart_handler(): 
+    global restart_requested 
+    restart_requested = True 
+    print("Restart requested from client")
+
 
 @app.route("/") 
 def index(): 
