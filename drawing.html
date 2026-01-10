@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Coordinate Drawing Tool</title>
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
     <style>
         html, body {
             margin: 0;
@@ -241,7 +242,9 @@
         
         const canvas = document.getElementById('canvas');
         const ctx = canvas.getContext('2d');
-        const jsonUrl = 'http://10.167.2.164:8080';
+        
+        // Initialize Socket.IO connection
+        const socket = io();
         
         let isDrawing = false;
         let originX = null;
@@ -250,11 +253,32 @@
         let firstCoordY = null;
         let lastX = null;
         let lastY = null;
-        let pollInterval = null;
         let timerInterval = null;
         let timeRemaining = 60; // 1 minute in seconds
         let currentPrompt = '';
         let wordList = [];
+        
+        // Socket.IO event listener for new coordinates
+        socket.on("new_coord", (data) => {
+            if (!isDrawing) return;
+            
+            // Extract x and y coordinates from the data
+            const x = data.x;
+            const y = data.y;
+            
+            if (x !== undefined && y !== undefined) {
+                processCoordinate(x, y);
+            }
+        });
+        
+        // Handle socket connection events
+        socket.on("connect", () => {
+            console.log("Connected to wand.py via Socket.IO");
+        });
+        
+        socket.on("disconnect", () => {
+            console.log("Disconnected from wand.py");
+        });
 
         // Resize canvas to fill viewport
         function resizeCanvas() {
@@ -635,47 +659,15 @@
         }
 
         function startPolling() {
-            // Poll for new coordinates every 100ms
-            pollInterval = setInterval(fetchCoordinates, 100);
-            // Also fetch immediately
-            fetchCoordinates();
+            // Socket.IO is already connected and listening
+            // The "new_coord" event handler will process coordinates automatically
+            console.log("Started listening for coordinates via Socket.IO");
         }
 
         function stopPolling() {
-            if (pollInterval) {
-                clearInterval(pollInterval);
-                pollInterval = null;
-            }
-        }
-
-        async function fetchCoordinates() {
-            if (!isDrawing) return;
-
-            try {
-                const response = await fetch(jsonUrl);
-                const data = await response.json();
-                
-                // Assuming the JSON contains x and y coordinates
-                // Adjust these property names based on your actual JSON structure
-                let x, y;
-                
-                if (Array.isArray(data)) {
-                    // If it's an array, take the last coordinate
-                    const coord = data[data.length - 1];
-                    x = coord.x || coord.X || coord[0];
-                    y = coord.y || coord.Y || coord[1];
-                } else {
-                    // If it's an object
-                    x = data.x || data.X || data.coordX || data.coordinateX;
-                    y = data.y || data.Y || data.coordY || data.coordinateY;
-                }
-
-                if (x !== undefined && y !== undefined) {
-                    processCoordinate(x, y);
-                }
-            } catch (error) {
-                console.error('Error fetching coordinates:', error);
-            }
+            // Socket.IO connection remains open, but coordinates won't be processed
+            // because isDrawing flag will be false
+            console.log("Stopped processing coordinates");
         }
 
         function processCoordinate(x, y) {
