@@ -18,6 +18,34 @@
             height: 100%;
             position: relative;
         }
+        .prompt-display {
+            position: absolute;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 10;
+            background: rgba(255, 255, 255, 0.95);
+            padding: 15px 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+            font-size: 24px;
+            font-weight: bold;
+            color: #333;
+        }
+        .timer-display {
+            position: absolute;
+            top: 80px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 10;
+            background: rgba(255, 255, 255, 0.95);
+            padding: 10px 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+            font-size: 20px;
+            font-weight: bold;
+            color: #f44336;
+        }
         .controls {
             position: absolute;
             top: 20px;
@@ -30,6 +58,10 @@
             align-items: center;
         }
         .test-input {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            z-index: 10;
             display: flex;
             gap: 8px;
             background: rgba(255, 255, 255, 0.95);
@@ -62,6 +94,10 @@
             background: #1976D2;
         }
         #drawingBtn {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            z-index: 10;
             padding: 12px 24px;
             font-size: 16px;
             border: none;
@@ -81,27 +117,125 @@
         #drawingBtn.off:hover {
             background: #da190b;
         }
+        #drawingBtn:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
         canvas {
             display: block;
             width: 100%;
             height: 100%;
             background: white;
         }
+        .results-backdrop {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.6);
+            z-index: 999;
+            opacity: 0;
+            transition: opacity 0.5s ease-in-out;
+            pointer-events: none;
+        }
+        .results-backdrop.show {
+            opacity: 1;
+            pointer-events: auto;
+        }
+        .results-panel {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, calc(-50% + 100px));
+            background: white;
+            box-shadow: 0 8px 40px rgba(0, 0, 0, 0.4);
+            z-index: 1000;
+            padding: 50px;
+            transition: transform 0.5s ease-in-out, opacity 0.5s ease-in-out;
+            opacity: 0;
+            width: 90%;
+            max-width: 800px;
+            border-radius: 16px;
+            overflow-y: auto;
+            max-height: 90vh;
+        }
+        .results-panel.show {
+            transform: translate(-50%, -50%);
+            opacity: 1;
+        }
+        .results-content {
+            display: flex;
+            align-items: center;
+            gap: 40px;
+            flex-wrap: wrap;
+        }
+        .results-image {
+            flex: 0 0 auto;
+        }
+        .results-image img {
+            width: 350px;
+            height: 260px;
+            object-fit: contain;
+            border: 3px solid #333;
+            border-radius: 12px;
+            background: white;
+        }
+        .results-info {
+            flex: 1;
+            min-width: 250px;
+        }
+        .results-info h2 {
+            margin: 0 0 15px 0;
+            color: #333;
+            font-size: 32px;
+        }
+        .results-info .prompt-display-result {
+            font-size: 22px;
+            color: #666;
+            margin-bottom: 20px;
+        }
+        .results-info .rating-display {
+            font-size: 48px;
+            font-weight: bold;
+            color: #4CAF50;
+            margin-bottom: 30px;
+        }
+        .play-again-btn {
+            padding: 12px 30px;
+            font-size: 16px;
+            background: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: background 0.2s;
+        }
+        .play-again-btn:hover {
+            background: #45a049;
+        }
     </style>
 </head>
 <body>
     <div class="container">
-        <div class="controls">
-            <button id="drawingBtn" onclick="toggleDrawing()">Start Drawing</button>
-            <div class="test-input">
-                <input type="text" id="testCoord" placeholder="x,y (e.g., 10,20)">
-                <button id="testBtn" onclick="testCoordinate()">Test Coord</button>
-            </div>
+        <div id="promptDisplay" class="prompt-display">Loading prompt...</div>
+        <div id="timerDisplay" class="timer-display" style="display: none;"></div>
+        <div class="test-input">
+            <input type="text" id="testCoord" placeholder="x,y (e.g., 10,20)">
+            <button id="testBtn" onclick="testCoordinate()">Test Coord</button>
         </div>
+        <button id="drawingBtn" onclick="toggleDrawing()">Start Drawing</button>
         <canvas id="canvas"></canvas>
     </div>
 
     <script>
+        // ============================================
+        // GEMINI API KEY - REPLACE WITH YOUR KEY HERE
+        // ============================================
+        const GEMINI_API_KEY = 'AIzaSyCwyZCc3xFspaCbFMnoAyQ4hIEbrfZG53Y';
+        // ============================================
+        
         const canvas = document.getElementById('canvas');
         const ctx = canvas.getContext('2d');
         const jsonUrl = 'http://10.167.2.164:8080';
@@ -114,6 +248,10 @@
         let lastX = null;
         let lastY = null;
         let pollInterval = null;
+        let timerInterval = null;
+        let timeRemaining = 60; // 1 minute in seconds
+        let currentPrompt = '';
+        let wordList = [];
 
         // Resize canvas to fill viewport
         function resizeCanvas() {
@@ -130,13 +268,314 @@
         ctx.lineCap = 'round';
         ctx.lineJoin = 'round';
 
+        // Word list embedded as array
+        wordList = [
+            'alien',
+            'astronaut',
+            'avocado',
+            'babysitter',
+            'bacon',
+            'bald',
+            'banana',
+            'barista',
+            'beaver',
+            'botox',
+            'Brazilian',
+            'bride',
+            'broccoli',
+            'butt',
+            'chihuahua',
+            'clown',
+            'cowboy',
+            'crab',
+            'DJ',
+            'donut',
+            'duck',
+            'elf',
+            'emoji',
+            'fart',
+            'flamingo',
+            'gamer',
+            'genie',
+            'ghost',
+            'gorilla',
+            'groom',
+            'hamster',
+            'hotdog',
+            'influencer',
+            'jellyfish',
+            'kangaroo',
+            'karaoke',
+            'ketchup',
+            'Kim Kardashian',
+            'king',
+            'lifeguard',
+            'llama',
+            'magician',
+            'mermaid',
+            'model',
+            'monkey',
+            'mummy',
+            'mustard',
+            'nerd',
+            'ninja',
+            'octopus',
+            'paparazzi',
+            'penguin',
+            'pirate',
+            'poop',
+            'potato',
+            'queen',
+            'rapper',
+            'robot',
+            'sandwich',
+            'selfie stick',
+            'skeleton',
+            'sleepwalker',
+            'sloth',
+            'snail',
+            'sniff',
+            'snore',
+            'surfer',
+            'sushi',
+            'taco',
+            'tourist',
+            'twerk',
+            'unicorn',
+            'vampire',
+            'waiter',
+            'watermelon',
+            'yoga',
+            'zombie'
+        ];
+
+        // Load word list and display random prompt
+        function loadWordList() {
+            displayRandomPrompt();
+        }
+
+        function displayRandomPrompt() {
+            if (wordList.length === 0) return;
+            const randomIndex = Math.floor(Math.random() * wordList.length);
+            currentPrompt = wordList[randomIndex].trim();
+            document.getElementById('promptDisplay').textContent = `Draw: ${currentPrompt}`;
+        }
+
+        // Timer functions
+        function startTimer() {
+            timeRemaining = 60;
+            const timerDisplay = document.getElementById('timerDisplay');
+            timerDisplay.style.display = 'block';
+            updateTimerDisplay();
+            
+            timerInterval = setInterval(() => {
+                timeRemaining--;
+                updateTimerDisplay();
+                
+                if (timeRemaining <= 0) {
+                    clearInterval(timerInterval);
+                    timerInterval = null;
+                    onTimerEnd();
+                }
+            }, 1000);
+        }
+
+        function stopTimer() {
+            if (timerInterval) {
+                clearInterval(timerInterval);
+                timerInterval = null;
+            }
+            document.getElementById('timerDisplay').style.display = 'none';
+        }
+
+        function updateTimerDisplay() {
+            const minutes = Math.floor(timeRemaining / 60);
+            const seconds = timeRemaining % 60;
+            document.getElementById('timerDisplay').textContent = 
+                `Time: ${minutes}:${seconds.toString().padStart(2, '0')}`;
+        }
+
+        async function onTimerEnd() {
+            // Stop drawing
+            isDrawing = false;
+            stopPolling();
+            document.getElementById('drawingBtn').disabled = true;
+            document.getElementById('drawingBtn').textContent = 'Time\'s Up!';
+            
+            // Capture canvas with white background
+            const imageData = captureCanvasWithWhiteBackground();
+            
+            // Send to Gemini for rating
+            await rateDrawingWithGemini(imageData, currentPrompt);
+        }
+
+        // Function to capture canvas with completely white background
+        function captureCanvasWithWhiteBackground() {
+            // Create a temporary canvas
+            const tempCanvas = document.createElement('canvas');
+            tempCanvas.width = canvas.width;
+            tempCanvas.height = canvas.height;
+            const tempCtx = tempCanvas.getContext('2d');
+            
+            // Fill with white background
+            tempCtx.fillStyle = '#FFFFFF';
+            tempCtx.fillRect(0, 0, tempCanvas.width, tempCanvas.height);
+            
+            // Draw the original canvas content on top
+            tempCtx.drawImage(canvas, 0, 0);
+            
+            // Convert to image data
+            return tempCanvas.toDataURL('image/png');
+        }
+
+        async function rateDrawingWithGemini(imageData, prompt) {
+            try {
+                // Convert base64 to base64 without data URL prefix
+                const base64Image = imageData.split(',')[1];
+                
+                const response = await fetch(
+                    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`,
+                    {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                            contents: [{
+                                parts: [
+                                    {
+                                        text: `Rate how close this drawing is to the prompt on a percentage scale. The prompt was: "${prompt}". Do not send anything other than a percentage value.`
+                                    },
+                                    {
+                                        inline_data: {
+                                            mime_type: 'image/png',
+                                            data: base64Image
+                                        }
+                                    }
+                                ]
+                            }]
+                        })
+                    }
+                );
+
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+
+                const data = await response.json();
+                const rating = data.candidates[0].content.parts[0].text.trim();
+                
+                // Display the results panel
+                showResultsPanel(imageData, prompt, rating);
+                
+            } catch (error) {
+                console.error('Error rating with Gemini:', error);
+                showResultsPanel(imageData, prompt, 'Error getting rating');
+            }
+        }
+
+        // Function to show results panel
+        function showResultsPanel(imageData, prompt, rating) {
+            // Remove existing panel and backdrop if any
+            const existingPanel = document.getElementById('resultsPanel');
+            const existingBackdrop = document.getElementById('resultsBackdrop');
+            if (existingPanel) {
+                existingPanel.remove();
+            }
+            if (existingBackdrop) {
+                existingBackdrop.remove();
+            }
+            
+            // Create backdrop
+            const backdrop = document.createElement('div');
+            backdrop.id = 'resultsBackdrop';
+            backdrop.className = 'results-backdrop';
+            document.body.appendChild(backdrop);
+            
+            // Create results panel
+            const panel = document.createElement('div');
+            panel.id = 'resultsPanel';
+            panel.className = 'results-panel';
+            panel.innerHTML = `
+                <div class="results-content">
+                    <div class="results-image">
+                        <img src="${imageData}" alt="Your drawing">
+                    </div>
+                    <div class="results-info">
+                        <h2>Your Results</h2>
+                        <div class="prompt-display-result">Prompt: <strong>${prompt}</strong></div>
+                        <div class="rating-display">Rating: ${rating}</div>
+                        <button class="play-again-btn" onclick="playAgain()">Play Again</button>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(panel);
+            
+            // Trigger slide-up animation
+            setTimeout(() => {
+                backdrop.classList.add('show');
+                panel.classList.add('show');
+            }, 10);
+        }
+
+        // Function to reset and play again
+        function playAgain() {
+            // Hide results panel and backdrop
+            const panel = document.getElementById('resultsPanel');
+            const backdrop = document.getElementById('resultsBackdrop');
+            if (panel) {
+                panel.classList.remove('show');
+            }
+            if (backdrop) {
+                backdrop.classList.remove('show');
+            }
+            setTimeout(() => {
+                if (panel) panel.remove();
+                if (backdrop) backdrop.remove();
+            }, 500);
+            
+            // Clear canvas
+            clearCanvas();
+            
+            // Reset all drawing state
+            isDrawing = false;
+            originX = null;
+            originY = null;
+            firstCoordX = null;
+            firstCoordY = null;
+            lastX = null;
+            lastY = null;
+            
+            // Stop any running timers
+            stopPolling();
+            stopTimer();
+            
+            // Reset button
+            const btn = document.getElementById('drawingBtn');
+            btn.textContent = 'Start Drawing';
+            btn.classList.add('off');
+            btn.disabled = false;
+            
+            // Get new random prompt
+            displayRandomPrompt();
+        }
+
+        // Load word list on page load
+        loadWordList();
+
         function toggleDrawing() {
-            isDrawing = !isDrawing;
             const btn = document.getElementById('drawingBtn');
             
-            if (isDrawing) {
-                btn.textContent = 'Stop Drawing';
+            if (!isDrawing) {
+                // Starting drawing session
+                isDrawing = true;
+                btn.textContent = 'Drawing...';
                 btn.classList.remove('off');
+                btn.disabled = true;
+                
+                // Clear canvas
+                clearCanvas();
+                
                 // Reset origin when starting
                 originX = null;
                 originY = null;
@@ -144,11 +583,22 @@
                 firstCoordY = null;
                 lastX = null;
                 lastY = null;
+                
+                // Start timer
+                startTimer();
+                
                 // Start polling for coordinates
                 startPolling();
             } else {
+                // Stopping drawing (shouldn't normally happen, but handle it)
+                isDrawing = false;
                 btn.textContent = 'Start Drawing';
                 btn.classList.add('off');
+                btn.disabled = false;
+                
+                // Stop timer
+                stopTimer();
+                
                 // Stop polling
                 stopPolling();
             }
