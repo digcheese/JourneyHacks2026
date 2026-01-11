@@ -58,42 +58,8 @@
             gap: 10px;
             align-items: center;
         }
-        .test-input {
-            position: absolute;
-            top: 20px;
-            right: 20px;
-            z-index: 10;
-            display: flex;
-            gap: 8px;
-            background: rgba(255, 255, 255, 0.95);
-            padding: 10px;
-            border-radius: 6px;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.2);
-        }
-        #testCoord {
-            padding: 8px 12px;
-            font-size: 14px;
-            border: 2px solid #ddd;
-            border-radius: 4px;
-            width: 150px;
-        }
-        #testCoord:focus {
-            outline: none;
-            border-color: #4CAF50;
-        }
-        #testBtn {
-            padding: 8px 16px;
-            font-size: 14px;
-            border: none;
-            border-radius: 4px;
-            cursor: pointer;
-            background: #2196F3;
-            color: white;
-            font-weight: bold;
-        }
-        #testBtn:hover {
-            background: #1976D2;
-        }
+
+
         #drawingBtn {
             position: fixed;
             top: 50%;
@@ -253,6 +219,25 @@
         .play-again-btn:hover {
             background: #45a049;
         }
+        .results-buttons {
+            display: flex;
+            gap: 10px;
+            margin-top: 20px;
+        }
+        .download-btn {
+            padding: 12px 30px;
+            font-size: 16px;
+            background: #2196F3;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: background 0.2s;
+        }
+        .download-btn:hover {
+            background: #1976D2;
+        }
     </style>
 </head>
 <body>
@@ -262,10 +247,6 @@
         <div id="gameOverlay" class="game-overlay"></div>
         <div id="countdownDisplay" style="display: none; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); font-size: 120px; font-weight: bold; color: #4CAF50; z-index: 100; text-shadow: 2px 2px 4px rgba(0,0,0,0.2);"></div>
         <div id="timerDisplay" class="timer-display" style="display: none;"></div>
-        <div class="test-input">
-            <input type="text" id="testCoord" placeholder="x,y (e.g., 10,20)">
-            <button id="testBtn" onclick="testCoordinate()">Test Coord</button>
-        </div>
         <button id="drawingBtn">Start Drawing</button>
         <canvas id="canvas"></canvas>
     </div>
@@ -274,7 +255,7 @@
         // ============================================
         // GEMINI API KEY - REPLACE WITH YOUR KEY HERE
         // ============================================
-        const GEMINI_API_KEY = 'AIzaSyDIaxZHEs45fcv76dUrZv49qft7yj4Vq6A';
+        const GEMINI_API_KEY = 'AIzaSyDIaxZHEs45fcv76dUrZv49qft7yj4Vq6';
         // ============================================
         
         const canvas = document.getElementById('canvas');
@@ -559,7 +540,10 @@
                             contents: [{
                                 parts: [
                                     {
-                                        text: `Rate how close this drawing is to the prompt on a percentage scale. The prompt was: "${prompt}". Do not send anything other than a percentage value.`
+                                        text: `Rate how close this drawing is to the prompt on a percentage scale. The prompt was: "${prompt}". 
+                                        Do not send anything other than a percentage value. This drawing is a line drawing, so it may be hard to intrepret the details.
+                                        Because of this, be a little more generous with your rating. Even if the drawing looks vague or nothing like the prompt. as long as the shape 
+                                        is somewhat recognizable, give it a fair rating.`
                                     },
                                     {
                                         inline_data: {
@@ -612,6 +596,65 @@
             return 50; // Default to 50% if can't parse
         }
 
+        // Function to download results card as PNG
+        function downloadResultsCard(prompt, rating, imageData) {
+            // Create a canvas to draw the card (1400x600 total)
+            const cardCanvas = document.createElement('canvas');
+            cardCanvas.width = 1400;
+            cardCanvas.height = 600;
+            const cardCtx = cardCanvas.getContext('2d');
+            
+            // Fill background with light color
+            cardCtx.fillStyle = '#f0f9f6';
+            cardCtx.fillRect(0, 0, cardCanvas.width, cardCanvas.height);
+            
+            // Add border
+            cardCtx.strokeStyle = '#a8d5ba';
+            cardCtx.lineWidth = 8;
+            cardCtx.strokeRect(25, 25, cardCanvas.width - 50, cardCanvas.height - 50);
+            
+            // Load and draw the drawing image
+            const img = new Image();
+            img.onload = function() {
+                // Draw the drawing image on the left side (same size as rating card: 350x260)
+                cardCtx.drawImage(img, 50, 120, 350, 260);
+                
+                // Add border around image
+                cardCtx.strokeStyle = '#6ec98f';
+                cardCtx.lineWidth = 5;
+                cardCtx.strokeRect(50, 120, 350, 260);
+                
+                // Add prompt text on the right
+                cardCtx.fillStyle = '#2d5a4a';
+                cardCtx.font = 'bold 28px Arial';
+                cardCtx.textAlign = 'left';
+                cardCtx.fillText('Prompt: ' + prompt, 450, 150);
+                
+                // Add rating text with gradient color
+                const percentage = extractPercentage(rating);
+                const gradientColor = getGradientColor(percentage);
+                cardCtx.fillStyle = gradientColor;
+                cardCtx.font = 'bold 64px Arial';
+                cardCtx.fillText('Rating: ' + rating, 450, 310);
+                
+                // Add "Picture Pitch" text at the bottom right
+                cardCtx.fillStyle = '#2d5a4a';
+                cardCtx.font = 'bold 32px Arial';
+                cardCtx.textAlign = 'right';
+                cardCtx.fillText('Picture Pitch', cardCanvas.width - 50, 560);
+                
+                // Download the canvas as PNG
+                cardCanvas.toBlob(function(blob) {
+                    const link = document.createElement('a');
+                    link.href = URL.createObjectURL(blob);
+                    link.download = 'drawing-results.png';
+                    link.click();
+                    URL.revokeObjectURL(link.href);
+                });
+            };
+            img.src = imageData;
+        }
+
         // Function to show results panel
         function showResultsPanel(imageData, prompt, rating) {
             // Remove existing panel and backdrop if any
@@ -647,7 +690,10 @@
                         <h2>Your Results</h2>
                         <div class="prompt-display-result">Prompt: <strong>${prompt}</strong></div>
                         <div class="rating-display" style="color: ${gradientColor};">Rating: ${rating}</div>
-                        <button class="play-again-btn" onclick="playAgain()">Play Again</button>
+                        <div class="results-buttons">
+                            <button class="play-again-btn" onclick="playAgain()">Play Again</button>
+                            <button class="download-btn" onclick="downloadResultsCard('${prompt}', '${rating}', '${imageData}')">Download Card</button>
+                        </div>
                     </div>
                 </div>
             `;
