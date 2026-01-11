@@ -95,32 +95,66 @@
             background: #1976D2;
         }
         #drawingBtn {
-            position: absolute;
-            bottom: 20px;
-            right: 20px;
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
             z-index: 10;
-            padding: 12px 24px;
-            font-size: 16px;
+            padding: 16px 48px;
+            font-size: 24px;
             border: none;
-            border-radius: 6px;
+            border-radius: 8px;
             cursor: pointer;
             background: #4CAF50;
             color: white;
             font-weight: bold;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
         }
         #drawingBtn:hover {
             background: #45a049;
         }
-        #drawingBtn.off {
-            background: #f44336;
-        }
-        #drawingBtn.off:hover {
-            background: #da190b;
-        }
         #drawingBtn:disabled {
             background: #ccc;
             cursor: not-allowed;
+        }
+        #drawingBtn.hidden {
+            display: none;
+        }
+        .game-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+            z-index: 5;
+            opacity: 1;
+            transition: opacity 0.6s ease-in-out;
+            pointer-events: none;
+        }
+        .game-overlay.hidden {
+            opacity: 0;
+            pointer-events: none;
+        }
+        .prompt-card-overlay {
+            position: absolute;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 20;
+            background: white;
+            padding: 30px 150px;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+            width: auto;
+            height: auto;
+            opacity: 1;
+            transition: transform 0.6s ease-in-out, opacity 0.6s ease-in-out;
+        }
+        .prompt-card-overlay.hidden {
+            transform: translateX(-50%) translateY(100px);
+            opacity: 0;
+            pointer-events: none;
         }
         canvas {
             display: block;
@@ -224,6 +258,9 @@
 <body>
     <div class="container">
         <div id="promptDisplay" class="prompt-display">Loading prompt...</div>
+        <div id="promptCardOverlay" class="prompt-card-overlay"></div>
+        <div id="gameOverlay" class="game-overlay"></div>
+        <div id="countdownDisplay" style="display: none; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); font-size: 120px; font-weight: bold; color: #4CAF50; z-index: 100; text-shadow: 2px 2px 4px rgba(0,0,0,0.2);"></div>
         <div id="timerDisplay" class="timer-display" style="display: none;"></div>
         <div class="test-input">
             <input type="text" id="testCoord" placeholder="x,y (e.g., 10,20)">
@@ -237,7 +274,7 @@
         // ============================================
         // GEMINI API KEY - REPLACE WITH YOUR KEY HERE
         // ============================================
-        const GEMINI_API_KEY = 'AIzaSyCwyZCc3xFspaCbFMnoAyQ4hIEbrfZG53Y';
+        const GEMINI_API_KEY = 'AIzaSyDIaxZHEs45fcv76dUrZv49qft7yj4Vq6A';
         // ============================================
         
         const canvas = document.getElementById('canvas');
@@ -254,7 +291,9 @@
         let lastX = null;
         let lastY = null;
         let timerInterval = null;
+        let countdownInterval = null;
         let timeRemaining = 60; // 1 minute in seconds
+        let countdownRemaining = 3; // 3 second countdown
         let currentPrompt = '';
         let wordList = [];
         
@@ -296,7 +335,7 @@
         window.addEventListener('resize', resizeCanvas);
         
         ctx.strokeStyle = '#000000';
-        ctx.lineWidth = 2;
+        ctx.lineWidth = 5;
         ctx.lineCap = 'round';
         ctx.lineJoin = 'round';
 
@@ -391,9 +430,38 @@
             const randomIndex = Math.floor(Math.random() * wordList.length);
             currentPrompt = wordList[randomIndex].trim();
             document.getElementById('promptDisplay').textContent = `Draw: ${currentPrompt}`;
+            
+            // Show overlays when displaying prompt
+            document.getElementById('gameOverlay').classList.remove('hidden');
+            document.getElementById('promptCardOverlay').classList.remove('hidden');
         }
 
         // Timer functions
+        function startCountdown() {
+            countdownRemaining = 3;
+            const countdownDisplay = document.getElementById('countdownDisplay');
+            countdownDisplay.style.display = 'block';
+            countdownDisplay.textContent = countdownRemaining;
+            
+            // Hide overlays when countdown starts
+            document.getElementById('gameOverlay').classList.add('hidden');
+            document.getElementById('promptCardOverlay').classList.add('hidden');
+            
+            countdownInterval = setInterval(() => {
+                countdownRemaining--;
+                
+                if (countdownRemaining > 0) {
+                    countdownDisplay.textContent = countdownRemaining;
+                } else {
+                    // Countdown finished, hide display and start actual timer
+                    countdownDisplay.style.display = 'none';
+                    clearInterval(countdownInterval);
+                    countdownInterval = null;
+                    startTimer();
+                }
+            }, 1000);
+        }
+
         function startTimer() {
             timeRemaining = 60;
             const timerDisplay = document.getElementById('timerDisplay');
@@ -423,8 +491,20 @@
         function updateTimerDisplay() {
             const minutes = Math.floor(timeRemaining / 60);
             const seconds = timeRemaining % 60;
-            document.getElementById('timerDisplay').textContent = 
+            const timerDisplay = document.getElementById('timerDisplay');
+            timerDisplay.textContent = 
                 `Time: ${minutes}:${seconds.toString().padStart(2, '0')}`;
+            
+            // Calculate color gradient from green to red based on time remaining
+            // timeRemaining goes from 60 to 0, percentage goes from 100 to 0
+            const percentage = (timeRemaining / 60) * 100;
+            
+            // Interpolate from green (#22c55e) to red (#ef4444)
+            const red = Math.round(239 + (34 - 239) * (percentage / 100));
+            const green = Math.round(69 + (197 - 69) * (percentage / 100));
+            const blue = Math.round(68 + (68 - 68) * (percentage / 100));
+            
+            timerDisplay.style.color = `rgb(${red}, ${green}, ${blue})`;
         }
 
         async function onTimerEnd() {
@@ -433,6 +513,9 @@
             stopPolling();
             document.getElementById('drawingBtn').disabled = true;
             document.getElementById('drawingBtn').textContent = 'Time\'s Up!';
+            
+            // Cover the prompt card immediately
+            document.getElementById('promptCardOverlay').classList.remove('hidden');
             
             // Capture canvas with white background
             const imageData = captureCanvasWithWhiteBackground();
@@ -612,7 +695,7 @@
             // Reset button
             const btn = document.getElementById('drawingBtn');
             btn.textContent = 'Start Drawing';
-            btn.classList.add('off');
+            btn.classList.remove('hidden');
             btn.disabled = false;
             
             // Get new random prompt
@@ -629,8 +712,8 @@
                 // Starting drawing session
                 isDrawing = true;
                 btn.textContent = 'Drawing...';
-                btn.classList.remove('off');
                 btn.disabled = true;
+                btn.classList.add('hidden');
                 
                 // Clear canvas
                 clearCanvas();
@@ -643,8 +726,8 @@
                 lastX = null;
                 lastY = null;
                 
-                // Start timer
-                startTimer();
+                // Start 3-second countdown before drawing
+                startCountdown();
                 
                 // Start polling for coordinates
                 startPolling();
@@ -653,6 +736,7 @@
                 isDrawing = false;
                 btn.textContent = 'Start Drawing';
                 btn.classList.add('off');
+                btn.classList.remove('hidden');
                 btn.disabled = false;
                 
                 // Stop timer
