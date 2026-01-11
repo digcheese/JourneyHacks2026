@@ -1,7 +1,7 @@
 #phyphox configuration
-# PP_ADDRESS = "http://172.20.10.1:80"
+#PP_ADDRESS = "http://172.20.10.1:80"
 PP_ADDRESS = "http://10.167.2.164:8080"
-PP_CHANNELS = ["linX","linY","linZ", "lin_time"]
+PP_CHANNELS = ["accX","accY","accZ", "acc_time"]
 
 import requests
 
@@ -16,61 +16,55 @@ import threading
 class RealTimePositionTracker:
     def __init__(self, accel_threshold=0.01):
         # State variables
-        self.velocity = np.array([0.0, 0.0, 0.0])
-        self.position = np.array([0.0, 0.0, 0.0])
+        self.velocity = np.array([0.0, 0.0, 0.0])        
         self.last_accel = np.array([0.0, 0.0, 0.0])
         self.last_time = None
                 
         # Filtering
         self.accel_threshold = accel_threshold # Meters/s^2
-        self.vel_threshold = 0.01
-        self.friction = 0.95
+        self.vel_threshold = 0.1
 
     def update(self, accel_input, current_time):
         """
         accel_input: list or np.array [x, y, z] in m/s^2
         current_time: timestamp in seconds
-        Returns: current position [x, y, z]
+        Returns: current velocity [x, y, z]
         """
-
-        # 1. Initialize time on first run
+        
+        # Initialize time on first run
         if self.last_time is None:
             self.last_time = current_time
-            return self.position
+            return self.velocity
         
-        # 2. Calculate time delta (dt)
+        # Calculate time delta (dt)
         dt = current_time - self.last_time
-        if dt <= 0: return self.position # Handle duplicate timestamps
+        if dt <= 0: return self.velocity # Handle duplicate timestamps
 
-        # 3. Thresholding Noise
-        acc_magnitude = np.linalg.norm(accel_input)
-        if acc_magnitude < self.accel_threshold:
-            # If acceleration is tiny, treat it as 0
-            accel_input = np.array([0.0, 0.0, 0.0])                
-        accel_linear = np.array(accel_input)
-        
+        # Thresholding Noise
         for i in range(3):
             if abs(self.velocity[i]) < self.vel_threshold:
                 self.velocity[i] = 0.0
+            
+            if abs(accel_input[i]) < self.accel_threshold:
+                accel_input[i] = 0.0
+                
 
+        accel_linear = np.array(accel_input)
 
-        # 4. Trapezoidal Integration for Velocity
+                    
+        # Trapezoidal Integration for Velocity
         # v = v0 + 0.5 * (a0 + a1) * dt
-        new_velocity = self.velocity + 0.5 * (self.last_accel + accel_linear) * dt * self.friction
-
-        # 5. Trapezoidal Integration for Position
-        # p = p0 + 0.5 * (v0 + v1) * dt
-        new_position = self.position + 0.5 * (self.velocity + new_velocity) * dt
-
-        # 6. Update State
+        new_velocity = self.velocity + 0.5 * (self.last_accel + accel_linear) * dt
+                
+        
+        # Update State
         self.velocity = new_velocity
-        self.position = new_position
         self.last_accel = accel_linear
-        self.last_time = current_time
+        self.last_time = current_time                
+        
+        return self.velocity
 
-        return self.position
-
-
+SCALE_FACTOR = 20
 
 app = Flask(__name__) 
 socketio = SocketIO(app, cors_allowed_origins="*")
@@ -94,12 +88,12 @@ def coordinate_loop():
         accZ = data["buffer"]["" + PP_CHANNELS[2]]['buffer'][0]
         acc_time = data["buffer"]["" + PP_CHANNELS[3]]['buffer'][0]
 
-
         accels = [accX, accY, accZ]
         
         pos = tracker.update(accels, acc_time)
         print(pos)
-        socketio.emit("new_coord", {"x": pos[0] * 100, "y": pos[1] * -100})
+        
+        socketio.emit("new_coord", {"x": pos[1] * SCALE_FACTOR, "y": pos[0] * SCALE_FACTOR})
         time.sleep(0.01)
         
 
@@ -118,4 +112,4 @@ if __name__ == "__main__":
     t = threading.Thread(target=coordinate_loop) 
     t.daemon = True 
     t.start() 
-    socketio.run(app, debug=True)
+    socketio.run(app, debug=True, use_reloader=False)
